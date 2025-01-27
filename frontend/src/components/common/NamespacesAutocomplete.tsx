@@ -5,12 +5,12 @@ import Checkbox from '@mui/material/Checkbox';
 import { useTheme } from '@mui/material/styles';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
 import { useHistory, useLocation } from 'react-router-dom';
 import helpers, { addQuery } from '../../helpers';
-import { useCluster } from '../../lib/k8s';
+import { useCluster, useClustersConf } from '../../lib/k8s';
 import Namespace from '../../lib/k8s/namespace';
 import { setNamespaceFilter } from '../../redux/filterSlice';
 import { useTypedSelector } from '../../redux/reducers/reducers';
@@ -155,7 +155,7 @@ export function NamespacesAutocomplete() {
 function NamespacesFromClusterAutocomplete(
   props: Omit<PureNamespacesAutocompleteProps, 'namespaceNames'>
 ) {
-  const [namespacesList] = Namespace.useList();
+  const [namespacesList, error] = Namespace.useList();
   const namespaceNames = useMemo(
     () =>
       namespacesList
@@ -164,6 +164,35 @@ function NamespacesFromClusterAutocomplete(
         .sort((a, b) => a.localeCompare(b)) ?? [],
     [namespacesList]
   );
+
+  const selectedNamespaces = useTypedSelector(state => state.filter.namespaces);
+  const allClustersConfigs = useClustersConf();
+  const currentCluster = useCluster();
+  const dispatch = useDispatch();
+
+  /**
+   * If we failed to load namespaces it might be because the user
+   * doesn't have acces to list all the namespaces.
+   *
+   * Sometimes in the kubeconfig there will be a default namespace set
+   * which we can try to use as a fallback
+   */
+  useEffect(() => {
+    if (
+      currentCluster &&
+      allClustersConfigs &&
+      error &&
+      (!namespacesList || namespacesList?.length === 0) &&
+      selectedNamespaces.size === 0
+    ) {
+      const defaultNamespaceFromKubeconfig =
+        allClustersConfigs[currentCluster]?.meta_data.namespace;
+
+      if (defaultNamespaceFromKubeconfig) {
+        dispatch(setNamespaceFilter([defaultNamespaceFromKubeconfig]));
+      }
+    }
+  }, [namespacesList, error, currentCluster]);
 
   return <PureNamespacesAutocomplete namespaceNames={namespaceNames} {...props} />;
 }
